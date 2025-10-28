@@ -3,7 +3,7 @@
 set -Eeuo pipefail
 
 # ── Defaults (override with env) ──────────────────────────────────────────────
-PIPE="${PIPE:-split}"             # direct | split | nut
+PIPE="${PIPE:-nut}"             # direct | split | nut
 MODE="${MODE:-ps4_low}"           # ps4_low | ps4_hi | ps4_ultra_low
 VIDEO_DEV="${VIDEO_DEV:-auto}"    # auto | /dev/videoN
 
@@ -12,7 +12,7 @@ ALSA_DEV="${ALSA_DEV:-auto}"      # auto | hw:X,Y
 PULSE_SOURCE="${PULSE_SOURCE:-@DEFAULT_SOURCE@}"
 
 FULLSCREEN="${FULLSCREEN:-1}"
-VOL_DB="${VOL_DB:-0}"
+VOL_DB="${VOL_DB:-8}"
 
 PROBESIZE="${PROBESIZE:-128k}"
 ANALYZE="${ANALYZE:-0}"
@@ -90,6 +90,14 @@ apply_video_format() {
 
 # Pick ALSA USB capture (hw:X,Y) if available
 discover_alsa_dev() {
+
+# Hard-select hw:1,0 if present and ALSA is auto
+if [[ "$AUDIO_MODE" == "alsa" && "$ALSA_DEV" == "auto" ]]; then
+  if arecord -l 2>/dev/null | grep -q "card 1: Video .* device 0"; then
+    ALSA_DEV="hw:1,0"
+    log "Selected ALSA USB3 Video at ${ALSA_DEV}"
+  fi
+fi
   [[ "${AUDIO_MODE}" != "alsa" ]] && return 0
   [[ "${ALSA_DEV}" != "auto" ]] && return 0
   if command -v arecord >/dev/null; then
@@ -114,8 +122,8 @@ discover_alsa_dev() {
 # Build ffplay/ffmpeg audio inputs/effects
 build_audio_in() {
   case "$AUDIO_MODE" in
-    alsa)  echo "-thread_queue_size 2048 -f alsa  -ac 2 -ar 48000 -i ${ALSA_DEV}" ;;
-    pulse) echo "-thread_queue_size 2048 -f pulse -ac 2 -ar 48000 -i ${PULSE_SOURCE}" ;;
+    alsa)  echo "-thread_queue_size 2048 -f alsa  -ac 2 -i ${ALSA_DEV}" ;;
+    pulse) echo "-thread_queue_size 2048 -f pulse -ac 2 -i ${PULSE_SOURCE}" ;;
     none)  echo "" ;;
     *)     err "AUDIO_MODE must be alsa|pulse|none" ;;
   esac
@@ -199,8 +207,8 @@ case "$PIPE" in
     if [[ "$AUDIO_MODE" != "none" ]]; then
       ffplay -nodisp -hide_banner -loglevel warning \
         -fflags nobuffer -flags low_delay \
-        $( [[ "$AUDIO_MODE" == "alsa"  ]] && echo "-f alsa  -ac 2 -ar 48000 -i ${ALSA_DEV}" ) \
-        $( [[ "$AUDIO_MODE" == "pulse" ]] && echo "-f pulse -ac 2 -ar 48000 -i ${PULSE_SOURCE}" ) \
+        $( [[ "$AUDIO_MODE" == "alsa"  ]] && echo "-f alsa  -ac 2 -i ${ALSA_DEV}" ) \
+        $( [[ "$AUDIO_MODE" == "pulse" ]] && echo "-f pulse -ac 2 -i ${PULSE_SOURCE}" ) \
         -af "aresample=48000:async=1:first_pts=0,volume=${VOL_DB}dB" >/dev/null 2>&1 &
       AUDIO_PID=$!
     fi
